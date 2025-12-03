@@ -1,8 +1,5 @@
--- epc_controller.lua
--- Fully Basalt 2.x compatible EPC music controller
-
-local basalt = require("Basalt")
-local json = textutils  -- for simple JSON serialize/unserialize
+-- epc_controller_vanilla.lua
+-- EPC Music Controller using vanilla CC:Tweaked APIs
 
 -- Load config
 local cfg = {}
@@ -16,91 +13,85 @@ end
 -- Connect to WebSocket
 local ws, err = http.websocket(cfg.ws_url)
 if not ws then
-    print("WebSocket connect failed:", err)
+    print("Failed to connect:", err)
     return
 end
-ws.send(json.serialize({ source = "epc" }))
 
--- Create main frame
-local main = basalt.getMainFrame()
-    :setAutoUpdate(true)
+-- Identify as EPC
+ws.send(textutils.serializeJSON({ source = "epc" }))
 
--- Add full-screen background rectangle
-local bg = main:addRectangle()
-bg:setPosition(1,1)
-bg:setSize(main:getSize())
-bg:setBackground(colors.black)
+-- Clear screen and set up colors
+term.clear()
+term.setCursorPos(1,1)
+local w,h = term.getSize()
 
--- Title label
-local title = main:addLabel()
-title:setPosition(2,1)
-title:setText("CC Music Controller")
-title:setForeground(colors.white)
-
--- YouTube URL input
-local urlInput = main:addInput()
-urlInput:setPosition(2,3)
-urlInput:setSize(40,1)
-urlInput:setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-
--- Status label
-local status = main:addLabel()
-status:setPosition(2, 5)
-status:setSize(40,1)
-status:setText("Ready")
-status:setForeground(colors.lightGray)
-
--- Button helper function
-local function sendCmd(cmd)
-    ws.send(json.serialize({ source="epc", target="cc", message=cmd }))
+-- Simple UI functions
+local function drawBox(x,y,width,height)
+    for i=0,height-1 do
+        term.setCursorPos(x,y+i)
+        term.write(string.rep(" ",width))
+    end
 end
 
--- Buttons
-local playBtn = main:addButton()
-playBtn:setPosition(2,7)
-playBtn:setSize(12,3)
-playBtn:setText("Play YT")
-playBtn:onClick(function() sendCmd("playYT:"..urlInput:getText()) end)
+local function drawLabel(x,y,text)
+    term.setCursorPos(x,y)
+    term.write(text)
+end
 
-local pauseBtn = main:addButton()
-pauseBtn:setPosition(16,7)
-pauseBtn:setSize(8,3)
-pauseBtn:setText("Pause")
-pauseBtn:onClick(function() sendCmd("pause") end)
+local function readInput(prompt,x,y)
+    term.setCursorPos(x,y)
+    write(prompt)
+    return read()
+end
 
-local stopBtn = main:addButton()
-stopBtn:setPosition(26,7)
-stopBtn:setSize(8,3)
-stopBtn:setText("Stop")
-stopBtn:onClick(function() sendCmd("stop") end)
+-- Draw basic UI
+drawBox(1,1,w,3)
+drawLabel(2,2,"CC Music Controller")
 
-local nextBtn = main:addButton()
-nextBtn:setPosition(36,7)
-nextBtn:setSize(8,3)
-nextBtn:setText("Next")
-nextBtn:onClick(function() sendCmd("next") end)
+drawBox(1,5,w,3)
+drawLabel(2,6,"YouTube URL:")
 
--- Volume slider
-local slider = main:addSlider()
-slider:setPosition(2,11)
-slider:setSize(30,1)
-slider:setValue(50)
-slider:onChange(function(self, v)
-    sendCmd("volume:"..v)
-end)
+drawBox(1,10,w,3)
+drawLabel(2,11,"[P]lay  [S]top  [U]pause  [N]ext  [V]olume")
 
--- Poll WebSocket and update status
-basalt.onEvent("tick", function()
+-- Main loop
+local volume = 50
+local ytURL = ""
+
+while true do
+    -- Input YouTube URL
+    term.setCursorPos(16,6)
+    ytURL = read()
+
+    drawLabel(2,8,"Enter command (P/S/U/N/V/Q):")
+    local cmd = read():upper()
+
+    if cmd == "P" then
+        ws.send(textutils.serializeJSON({ source="epc", target="cc", message="playYT:"..ytURL }))
+    elseif cmd == "S" then
+        ws.send(textutils.serializeJSON({ source="epc", target="cc", message="stop" }))
+    elseif cmd == "U" then
+        ws.send(textutils.serializeJSON({ source="epc", target="cc", message="pause" }))
+    elseif cmd == "N" then
+        ws.send(textutils.serializeJSON({ source="epc", target="cc", message="next" }))
+    elseif cmd == "V" then
+        drawLabel(2,12,"Set volume (0-100):")
+        term.setCursorPos(20,12)
+        local vol = tonumber(read())
+        if vol then
+            volume = math.max(0, math.min(100, vol))
+            ws.send(textutils.serializeJSON({ source="epc", target="cc", message="volume:"..volume }))
+        end
+    elseif cmd == "Q" then
+        break
+    end
+
+    -- Poll for messages from CC
     local msg, err = ws.receive()
     if msg then
-        local ok, data = pcall(json.unserialize, msg)
+        local ok, data = pcall(textutils.unserializeJSON, msg)
         if ok and data.source=="cc" and data.message then
-            status:setText("CC: "..tostring(data.message))
+            drawLabel(2,14,"CC: "..tostring(data.message))
         end
-    elseif err then
-        status:setText("WS error: "..tostring(err))
     end
-end)
-
--- Start Basalt event loop
-basalt.autoUpdate()
+end
