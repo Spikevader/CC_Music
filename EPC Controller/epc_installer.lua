@@ -12,10 +12,10 @@ f.close()
 -- Ensure modules folder exists
 if not fs.exists("modules") then fs.makeDir("modules") end
 
--- Replace these with your Gist raw URLs
+-- Use raw GitHub URLs
 local files = {
-    {"modules/utils.lua","https://github.com/Spikevader/CC_Music/blob/main/EPC%20Controller/modules/utils.lua"},
-    {"epc_controller.lua","https://github.com/Spikevader/CC_Music/blob/main/EPC%20Controller/epc_controller.lua"}
+    {"modules/utils.lua","https://raw.githubusercontent.com/Spikevader/CC_Music/main/EPC%20Controller/modules/utils.lua"},
+    {"epc_controller.lua","https://raw.githubusercontent.com/Spikevader/CC_Music/main/EPC%20Controller/epc_controller.lua"}
 }
 
 -- Download files
