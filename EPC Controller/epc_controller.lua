@@ -1,79 +1,93 @@
+-- epc_controller.lua
 local basalt = require("basalt")
-local utils = require("modules/utils")
+local http = http  -- ensure HTTP API is available
+local json = textutils  -- use textutils as JSON util (or your own)
 
-local ws_url
+-- Load config
+local cfg = {}
 if fs.exists("config.lua") then
-    ws_url = dofile("config.lua").ws_url
+  cfg = dofile("config.lua")
 else
-    write("Enter WebSocket URL: ")
-    ws_url = read()
-    local f = fs.open("config.lua","w")
-    f.write("return { ws_url='"..ws_url.."' }")
-    f.close()
+  print("No config.lua — please run installer first.")
+  return
 end
 
-local ws, err = http.websocket(ws_url)
-if not ws then error("Failed to connect: "..err) end
-ws.send(textutils.serializeJSON({source="epc_controller"}))
+local ws, err = http.websocket(cfg.ws_url)
+if not ws then
+  print("WebSocket connect failed:", err)
+  return
+end
+ws.send(json.serialize({ source = "epc" }))
 
-local ui = basalt.createFrame()
-ui:setSize(50,20)
-ui:setTitle("CC Music Controller")
+-- Get main frame
+local main = basalt.getMainFrame()
+  :setBackground(colors.black)
 
-local search_input = ui:addInput():setPos(2,2):setSize(20,1):setText("Search song...")
-local search_btn = ui:addButton():setPos(23,2):setSize(10,1):setText("Search")
-local song_list = ui:addList():setPos(2,4):setSize(40,10)
-local play_btn = ui:addButton():setPos(2,15):setSize(10,1):setText("Play")
-local instrument_input = ui:addInput():setPos(25,4):setSize(10,1):setText("harp")
-local volume_input = ui:addInput():setPos(25,5):setSize(5,1):setText("3")
-local pitch_input = ui:addInput():setPos(25,6):setSize(5,1):setText("5")
-local progress_bar = ui:addProgressBar():setPos(2,17):setSize(40,1):setValue(0)
+-- Title label
+local title = main:addLabel()
+  :setText("CC Music Controller")
+  :setPosition(2, 1)
+  :setForeground(colors.white)
 
-local search_results = {}
+-- YouTube URL input
+local urlInput = main:addInput()
+  :setPosition(2, 3)
+  :setSize(40, 1)
+  :setText("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
-local function sendPlaySong(filename)
-    ws.send(textutils.serializeJSON({
-        source="epc_controller",
-        target="cc_music",
-        command="play_song",
-        args={filename=filename}
-    }))
+-- Buttons
+local function sendCmd(cmd)
+  ws.send(json.serialize({ source = "epc", target = "cc", message = cmd }))
 end
 
-local function sendPlayNote(instr, vol, pitch)
-    ws.send(textutils.serializeJSON({
-        source="epc_controller",
-        target="cc_music",
-        command="play_note",
-        args={instrument=instr, volume=vol, pitch=pitch}
-    }))
-end
+main:addButton()
+  :setPosition(2,5):setSize(12,3)
+  :setText("Play YT")
+  :onClick(function() sendCmd("playYT:"..urlInput:getText()) end)
 
-search_btn:onClick(function()
-    local query = search_input:getText()
-    local songs = utils.fetchJSON("https://pastebin.com/raw/Rc1PCzLH") or {}
-    search_results = {}
-    query = query:lower()
-    for _,s in ipairs(songs) do
-        if s.name:lower():find(query) then table.insert(search_results, s) end
-    end
-    song_list:clear()
-    for i,s in ipairs(search_results) do song_list:addItem(s.name) end
-end)
+main:addButton()
+  :setPosition(16,5):setSize(8,3)
+  :setText("Pause")
+  :onClick(function() sendCmd("pause") end)
 
-play_btn:onClick(function()
-    local idx = song_list:getSelected()
-    if idx and search_results[idx] then
-        sendPlaySong(search_results[idx].file)
-        progress_bar:setValue(0)
-    else
-        sendPlayNote(instrument_input:getText(),
-                    tonumber(volume_input:getText()),
-                    tonumber(pitch_input:getText()))
-    end
-end)
+main:addButton()
+  :setPosition(26,5):setSize(8,3)
+  :setText("Stop")
+  :onClick(function() sendCmd("stop") end)
+
+main:addButton()
+  :setPosition(36,5):setSize(8,3)
+  :setText("Next")
+  :onClick(function() sendCmd("next") end)
+
+-- Volume slider
+local slider = main:addSlider()
+  :setPosition(2,9):setSize(30,1)
+  :setValue(50)
+  :onChange(function(self, v)
+     sendCmd("volume:"..v)
+  end)
+
+-- Status / feedback label
+local status = main:addLabel()
+  :setPosition(2, 11)
+  :setSize(40, 1)
+  :setForeground(colors.lightGray)
+  :setText("Ready")
+
+-- Loop to poll WebSocket and update UI
+basalt.autoUpdate()  -- start Basalt event loop
 
 while true do
-    ui:draw()
-    os.sleep(0.05)
+  local msg, err = ws.receive()
+  if msg then
+    local ok, data = pcall(json.unserialize, msg)
+    if ok and data.source == "cc" and data.message then
+      status:setText("CC: "..tostring(data.message))
+    end
+  elseif err then
+    status:setText("WS error: "..tostring(err))
+    break
+  end
+  sleep(0.1)
 end
