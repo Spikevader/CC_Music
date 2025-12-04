@@ -23,44 +23,30 @@ print("CONNECTED — waiting for music commands...")
 -- Main loop
 while true do
     local msg = ws.receive()
-
     if msg == nil then break end
 
-    print("[RECEIVED] " .. msg)
+    print("RAW MESSAGE >>>", msg) -- Debug print
 
-    -- We support both plain text + JSON control
+    -- Try JSON decode
     local ok, data = pcall(textutils.unserializeJSON, msg)
 
-    -- If JSON command
     if ok and type(data) == "table" then
+        print("JSON DECODED >>>", data.action, data.url or data.level)
 
-        -------- PLAY from URL --------
-        if data.action == "play" and data.url then
-            print("Starting song:", data.url)
-            shell.run("music", data.url)   -- This calls Rc1PCzLH script
-            ws.send("PLAYING " .. data.url)
-
-        -------- STOP --------
+        if data.action == "play" then
+            print("Play command received. Starting music...")
+            shell.run("music", data.url)
+            ws.send("CC: PLAY STARTED")
         elseif data.action == "stop" then
-            print("Stopping song...")
-            speaker.stop()
-            ws.send("STOPPED")
-
-        -------- VOLUME --------
-        elseif data.action == "volume" and data.level then
-            print("Setting volume:", data.level)
-            settings.set("music.volume", data.level)
-            ws.send("VOLUME SET TO " .. data.level)
+            print("Stopping...")
+            ws.send("CC: STOPPED")
         end
 
-    -- Otherwise fallback to raw text commands ----------------
     else
-        if msg == "stop" then
-            speaker.stop()
-            ws.send("STOPPED")
-        end
+        print("NON-JSON MESSAGE >>>", msg)
     end
 end
+
 
 ws.close()
 print("WebSocket Closed")
